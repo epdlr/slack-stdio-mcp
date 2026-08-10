@@ -4,6 +4,8 @@
  */
 
 import assert from "node:assert/strict";
+import os from "node:os";
+import path from "node:path";
 import { describe, it } from "node:test";
 import {
   CONFIG_DEFAULTS,
@@ -12,6 +14,7 @@ import {
   resolveConfig,
 } from "../src/config.mjs";
 import { DEFAULT_CLIENT_ID } from "../src/oauth-flow.mjs";
+import { profileCredentialsDir } from "../src/platform.mjs";
 
 describe("parseArgv", () => {
   it("parses --flag value and --flag=value", () => {
@@ -130,5 +133,43 @@ describe("resolveConfig (shipped)", () => {
     assert.equal(env.SLACK_SKIP_OAUTH, "1");
     assert.equal(env.SLACK_STDIO_CREDS_DIR, "/c");
     assert.equal(env.SLACK_OAUTH_HOST, "localhost");
+  });
+
+  it("--profile resolves to ~/.slack-stdio-mcp/profiles/<name>", () => {
+    const home = "/tmp/fake-home-profile";
+    const c = resolveConfig({
+      argv: ["--profile", "user_cl"],
+      env: { HOME: home },
+    });
+    assert.equal(c.profile, "user_cl");
+    assert.equal(
+      c.credsDir,
+      profileCredentialsDir("user_cl", { homedir: home }),
+    );
+    assert.equal(
+      c.credsDir,
+      path.join(home, ".slack-stdio-mcp", "profiles", "user_cl"),
+    );
+  });
+
+  it("--creds-dir wins over --profile", () => {
+    const c = resolveConfig({
+      argv: ["--profile", "user_cl", "--creds-dir", "/explicit/creds"],
+      env: { HOME: "/tmp/fake-home" },
+    });
+    assert.equal(c.credsDir, "/explicit/creds");
+    assert.equal(c.profile, "user_cl");
+  });
+
+  it("same profile name yields the same path (share across repos)", () => {
+    const a = resolveConfig({ argv: ["--profile", "user_cl"], env: {} });
+    const b = resolveConfig({ argv: ["--profile", "user_cl"], env: {} });
+    assert.equal(a.credsDir, b.credsDir);
+    assert.ok(a.credsDir?.includes(`${path.sep}profiles${path.sep}user_cl`));
+    // Default home on this machine
+    assert.equal(
+      a.credsDir,
+      path.join(os.homedir(), ".slack-stdio-mcp", "profiles", "user_cl"),
+    );
   });
 });

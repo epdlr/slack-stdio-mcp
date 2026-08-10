@@ -6,6 +6,7 @@
  * Testable without starting MCP: pass synthetic `argv` + `env` to `resolveConfig`.
  */
 
+import { profileCredentialsDir } from "./platform.mjs";
 import { DEFAULT_CLIENT_ID } from "./oauth-flow.mjs";
 
 /**
@@ -17,6 +18,7 @@ import { DEFAULT_CLIENT_ID } from "./oauth-flow.mjs";
  * @property {number} [oauthPort]
  * @property {string} [mcpUrl]
  * @property {string} [credsDir]
+ * @property {string} [profile]
  * @property {boolean} [skipOAuth]
  * @property {string} [token]
  * @property {boolean} help
@@ -33,6 +35,7 @@ import { DEFAULT_CLIENT_ID } from "./oauth-flow.mjs";
  * @property {number} oauthPort
  * @property {string} mcpUrl
  * @property {string} [credsDir]
+ * @property {string} [profile]
  * @property {boolean} skipOAuth
  * @property {string} [token]
  * @property {string[]} unknownFlags
@@ -57,6 +60,7 @@ export const FLAG_TO_ENV = Object.freeze({
   "oauth-port": "SLACK_OAUTH_PORT",
   "mcp-url": "SLACK_MCP_URL",
   "creds-dir": "SLACK_STDIO_CREDS_DIR",
+  profile: "SLACK_STDIO_PROFILE",
   "skip-oauth": "SLACK_SKIP_OAUTH",
   token: "SLACK_MCP_TOKEN",
   "mcp-token": "SLACK_MCP_TOKEN",
@@ -71,6 +75,7 @@ const KNOWN_FLAGS = new Set([
   "oauth-port",
   "mcp-url",
   "creds-dir",
+  "profile",
   "skip-oauth",
   "token",
   "mcp-token",
@@ -184,6 +189,9 @@ export function parseArgv(argv) {
       case "creds-dir":
         out.credsDir = value;
         break;
+      case "profile":
+        out.profile = value;
+        break;
       case "token":
       case "mcp-token":
         out.token = value;
@@ -272,7 +280,18 @@ export function resolveConfig(opts = {}) {
     pickString(flags.mcpUrl, env, "SLACK_MCP_URL", CONFIG_DEFAULTS.mcpUrl) ||
     CONFIG_DEFAULTS.mcpUrl;
 
-  const credsDir = pickString(flags.credsDir, env, "SLACK_STDIO_CREDS_DIR", undefined);
+  // Precedence for storage: --creds-dir > --profile / SLACK_STDIO_PROFILE > default dir.
+  const explicitCredsDir = pickString(flags.credsDir, env, "SLACK_STDIO_CREDS_DIR", undefined);
+  const profile = pickString(flags.profile, env, "SLACK_STDIO_PROFILE", undefined);
+  /** @type {string | undefined} */
+  let credsDir = explicitCredsDir;
+  if (!credsDir && profile) {
+    const homeHint =
+      (typeof env.HOME === "string" && env.HOME.trim()) ||
+      (typeof env.USERPROFILE === "string" && env.USERPROFILE.trim()) ||
+      undefined;
+    credsDir = profileCredentialsDir(profile, { homedir: homeHint || undefined });
+  }
 
   const skipOAuth =
     flags.skipOAuth === true ||
@@ -293,6 +312,7 @@ export function resolveConfig(opts = {}) {
     oauthPort,
     mcpUrl,
     credsDir: credsDir || undefined,
+    profile: profile || undefined,
     skipOAuth,
     token: token || undefined,
     unknownFlags: flags.unknown,
@@ -321,13 +341,16 @@ Options:
   --oauth-path <path>    Redirect path (default: /callback)
   --oauth-port <port>    Loopback port (default: 3118)
   --mcp-url <url>        MCP endpoint (default: https://mcp.slack.com/mcp)
-  --creds-dir <dir>      Credentials root (env SLACK_STDIO_CREDS_DIR)
+  --profile <name>       Named creds under ~/.slack-stdio-mcp/profiles/<name>
+                         (env SLACK_STDIO_PROFILE). Same name ⇒ share tokens across hosts.
+  --creds-dir <dir>      Absolute credentials root (wins over --profile)
   --skip-oauth           Do not open browser; fail if no usable token
   --token <bearer>       Inject access token (env SLACK_MCP_TOKEN)
   --mcp-token <bearer>   Alias of --token
   -h, --help             Show this help
 
 Examples:
+  npx -y slack-stdio-mcp --profile user_cl
   npx -y slack-stdio-mcp --skip-oauth
   node src/server.mjs --client-id 123.456 --oauth-path /oauth/callback --oauth-host 127.0.0.1
 `;
@@ -351,6 +374,9 @@ export function applyConfigToEnv(config, env = process.env) {
   env.SLACK_MCP_URL = config.mcpUrl;
   if (config.credsDir) {
     env.SLACK_STDIO_CREDS_DIR = config.credsDir;
+  }
+  if (config.profile) {
+    env.SLACK_STDIO_PROFILE = config.profile;
   }
   if (config.skipOAuth) {
     env.SLACK_SKIP_OAUTH = "1";

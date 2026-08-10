@@ -15,7 +15,10 @@ import {
   fsMkdirOptions,
   fsWriteOptions,
   isWindowsCmdQuotedUrlArg,
+  profileCredentialsDir,
+  profileHomeRoot,
   quoteForWindowsCmd,
+  safeProfileName,
   supportsUnixFileModes,
 } from "../src/platform.mjs";
 import {
@@ -23,6 +26,22 @@ import {
   getCredentialsDir,
   saveCredentials,
 } from "../src/token.mjs";
+
+describe("profileCredentialsDir (shipped)", () => {
+  it("uses ~/.slack-stdio-mcp/profiles/<name> under home", () => {
+    const dir = profileCredentialsDir("user_cl", { homedir: "/Users/ada" });
+    assert.equal(dir, path.join("/Users/ada", ".slack-stdio-mcp", "profiles", "user_cl"));
+    assert.equal(profileHomeRoot({ homedir: "/Users/ada" }), path.join("/Users/ada", ".slack-stdio-mcp"));
+  });
+
+  it("sanitizes unsafe profile characters", () => {
+    assert.equal(safeProfileName("user/cl"), "user_cl");
+    assert.equal(
+      profileCredentialsDir("Acme Corp!", { homedir: "/h" }),
+      path.join("/h", ".slack-stdio-mcp", "profiles", "Acme_Corp_"),
+    );
+  });
+});
 
 describe("defaultCredentialsDir (shipped)", () => {
   it("win32 uses APPDATA, does not force .config under home", () => {

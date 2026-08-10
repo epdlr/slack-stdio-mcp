@@ -94,6 +94,50 @@ export function defaultCredentialsDir(opts = {}) {
 }
 
 /**
+ * Root for named profiles: `~/.slack-stdio-mcp` (all platforms).
+ * Portable; no absolute machine paths in host config — only `--profile <name>`.
+ *
+ * @param {{ homedir?: string }} [opts]
+ * @returns {string}
+ */
+export function profileHomeRoot(opts = {}) {
+  const home = opts.homedir ?? os.homedir();
+  return path.join(home, ".slack-stdio-mcp");
+}
+
+/**
+ * Sanitize a profile name for a single path segment.
+ *
+ * @param {string} profile
+ * @returns {string}
+ */
+export function safeProfileName(profile) {
+  const trimmed = String(profile ?? "").trim();
+  if (!trimmed) {
+    throw new Error("safeProfileName: profile required");
+  }
+  const safe = trimmed.replace(/[^a-zA-Z0-9._-]/g, "_");
+  if (!safe || safe === "." || safe === "..") {
+    throw new Error(`safeProfileName: invalid profile name: ${profile}`);
+  }
+  return safe;
+}
+
+/**
+ * Credentials dir for a named profile:
+ * `~/.slack-stdio-mcp/profiles/<safeName>`
+ *
+ * Same profile name ⇒ same tokens across repos/machines (per home dir).
+ *
+ * @param {string} profile
+ * @param {{ homedir?: string }} [opts]
+ * @returns {string}
+ */
+export function profileCredentialsDir(profile, opts = {}) {
+  return path.join(profileHomeRoot(opts), "profiles", safeProfileName(profile));
+}
+
+/**
  * Build command + args (+ execFile options) to open a URL in the browser.
  *
  * Windows: `cmd /c start "" "<url>"`

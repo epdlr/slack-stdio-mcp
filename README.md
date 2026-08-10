@@ -163,7 +163,8 @@ above that value. The authorize URL is always printed on **stderr**.
 | `--oauth-path <path>` | `SLACK_OAUTH_PATH` | Redirect path (`/callback`) |
 | `--oauth-port <port>` | `SLACK_OAUTH_PORT` | Loopback port (`3118`) |
 | `--mcp-url <url>` | `SLACK_MCP_URL` | MCP endpoint |
-| `--creds-dir <dir>` | `SLACK_STDIO_CREDS_DIR` | Credentials root |
+| `--profile <name>` | `SLACK_STDIO_PROFILE` | Named store: `~/.slack-stdio-mcp/profiles/<name>` (share across repos) |
+| `--creds-dir <dir>` | `SLACK_STDIO_CREDS_DIR` | Absolute credentials root (wins over `--profile`) |
 | `--skip-oauth` | `SLACK_SKIP_OAUTH=1` | Never open browser |
 | `--token` / `--mcp-token` | `SLACK_MCP_TOKEN` | Inject Bearer (tests/CI) |
 | `-h` / `--help` | — | Help on stderr |
@@ -172,9 +173,15 @@ Env only: `SLACK_OAUTH_TIMEOUT_MS`, `SLACK_ALLOW_LEGACY_TOKEN=1` (flat legacy
 JSON without `client_id`).
 
 ```bash
+npx -y slack-stdio-mcp -- --profile user_cl
 npx -y slack-stdio-mcp -- --client-id 123.456 --oauth-path /oauth/callback
 npx -y slack-stdio-mcp -- --skip-oauth --creds-dir /tmp/empty-creds
 ```
+
+**Profiles:** the same `--profile` name in every host/repo reuses
+`~/.slack-stdio-mcp/profiles/<name>/…` (no absolute paths in config). Grok does
+not inject the MCP server key into the process — put the profile string in
+`args` yourself (convention: match your team/workspace name).
 
 ## Platforms
 
