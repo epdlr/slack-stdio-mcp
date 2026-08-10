@@ -40,7 +40,7 @@
   "scripts": {
     "start": "node src/server.mjs",
     "auth": "node src/auth.mjs",
-    "test": "node --test test/**/*.test.mjs",
+    "test": "node scripts/run-tests.mjs",
     "assert-english": "node scripts/assert-english.mjs",
     "check": "node --check src/platform.mjs && node --check src/config.mjs && node --check src/token.mjs && node --check src/refresh.mjs && node --check src/ensure-token.mjs && node --check src/session.mjs && node --check src/oauth-flow.mjs && node --check src/auth.mjs && node --check src/server.mjs && node scripts/assert-english.mjs"
   },
