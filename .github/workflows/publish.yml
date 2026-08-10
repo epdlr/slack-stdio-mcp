@@ -1,0 +1,38 @@
+# Publish to npm via Trusted Publishing (OIDC) — no long-lived NPM_TOKEN.
+# Prerequisites (one-time, after the first manual `npm publish` creates the package):
+#   npmjs.com → package slack-stdio-mcp → Settings → Trusted Publisher
+#   → GitHub Actions: user=epdlr, repo=slack-stdio-mcp, workflow=publish.yml
+# Trigger: push a version tag, e.g. v1.0.1 (must match package.json version).
+name: publish
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  id-token: write # OIDC for npm Trusted Publishing
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Trusted Publishing needs Node ≥ 22.14 and npm CLI ≥ 11.5.1
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Ensure modern npm CLI (OIDC)
+        run: npm install -g npm@latest
+
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+
+      # No NODE_AUTH_TOKEN: npm exchanges the GitHub OIDC token automatically.
+      - name: Publish to npm
+        run: npm publish

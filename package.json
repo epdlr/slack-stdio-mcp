@@ -1,0 +1,52 @@
+{
+  "name": "slack-stdio-mcp",
+  "version": "1.0.0",
+  "private": false,
+  "type": "module",
+  "description": "Agent-agnostic MCP stdio bridge to https://mcp.slack.com/mcp (user OAuth, PKCE, token refresh, tool proxy)",
+  "keywords": [
+    "mcp",
+    "slack",
+    "stdio",
+    "model-context-protocol",
+    "oauth",
+    "pkce"
+  ],
+  "homepage": "https://github.com/epdlr/slack-stdio-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/epdlr/slack-stdio-mcp/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/epdlr/slack-stdio-mcp.git"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "epdlr",
+    "url": "https://github.com/epdlr"
+  },
+  "bin": {
+    "slack-stdio-mcp": "./src/server.mjs"
+  },
+  "files": [
+    "src/",
+    "docs/",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md",
+    "SECURITY.md"
+  ],
+  "scripts": {
+    "start": "node src/server.mjs",
+    "auth": "node src/auth.mjs",
+    "test": "node --test test/**/*.test.mjs",
+    "assert-english": "node scripts/assert-english.mjs",
+    "check": "node --check src/platform.mjs && node --check src/config.mjs && node --check src/token.mjs && node --check src/refresh.mjs && node --check src/ensure-token.mjs && node --check src/session.mjs && node --check src/oauth-flow.mjs && node --check src/auth.mjs && node --check src/server.mjs && node scripts/assert-english.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1"
+  }
+}

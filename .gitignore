@@ -1,0 +1,33 @@
+node_modules/
+dist/
+coverage/
+.nyc_output/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+*.code-workspace
+
+# Local secrets / OAuth tokens (never commit)
+credentials.json
+**/credentials.json
+**/by-client/
+.env
+.env.*
+!.env.example
+
+# Logs and scratch
+*.log
+.scratch/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Keys
+*.pem
+*.key
+*.p12
