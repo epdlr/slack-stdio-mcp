@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-10
+
+### Added
+
+- `--profile <name>` / `SLACK_STDIO_PROFILE`: portable credential stores under
+  `~/.slack-stdio-mcp/profiles/<name>` so hosts share tokens without absolute
+  `--creds-dir` paths. Explicit `--creds-dir` still wins over profile.
+
+### Fixed
+
+- Stable npm `bin` entry (`bin/slack-stdio-mcp.js`) so the CLI is not stripped on publish.
+- Cross-platform test runner (`scripts/run-tests.mjs`) so Node 20 CI no longer
+  fails on unexpanded `test/**/*.test.mjs` globs.
+
 ## [1.0.0] - 2026-08-10
 
 First public release.
@@ -22,6 +36,8 @@ First public release.
 - CLI flags and env (`config.mjs`): flags > env > defaults; `--help`.
 - Multiplatform credentials and browser open (Windows / macOS / Linux).
 - CI matrix (ubuntu, windows, macos × Node 20/22), unit tests, English residual gate.
+- npm Trusted Publishing workflow (`.github/workflows/publish.yml`).
 
-[Unreleased]: https://github.com/epdlr/slack-stdio-mcp/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/epdlr/slack-stdio-mcp/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/epdlr/slack-stdio-mcp/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/epdlr/slack-stdio-mcp/releases/tag/v1.0.0
