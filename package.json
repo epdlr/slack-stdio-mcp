@@ -26,9 +26,10 @@
     "url": "https://github.com/epdlr"
   },
   "bin": {
-    "slack-stdio-mcp": "./src/server.mjs"
+    "slack-stdio-mcp": "bin/slack-stdio-mcp.js"
   },
   "files": [
+    "bin/",
     "src/",
     "docs/",
     "LICENSE",
