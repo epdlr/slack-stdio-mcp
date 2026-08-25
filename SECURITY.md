@@ -21,5 +21,9 @@ misconfiguration, etc.):
 - Optional overrides: `--creds-dir` / `SLACK_STDIO_CREDS_DIR`, or
   `SLACK_MCP_TOKEN` / related inject env vars.
 
+`slack_stdio_download_file` writes Slack file bytes under `dest_dir` (default
+`$TMPDIR/slack-stdio-mcp-downloads`) with mode `0600` when the OS supports it.
+Treat those files as workspace data. Do not log tokens or private file URLs.
+
 Never commit credentials, `.env` files, or token dumps. If a token may have
 leaked, revoke the Slack app authorization from your Slack account.

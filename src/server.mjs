@@ -6,7 +6,8 @@
  * Does not implement Slack tools; proxies the hosted catalog over Streamable HTTP
  * with a user Bearer. Mid-session auth: force-refresh, then interactive re-auth
  * (`SLACK_REAUTH_REQUIRED` + authorize URL). Local tools:
- * `slack_stdio_reauth`, `slack_stdio_session_status`.
+ * `slack_stdio_reauth`, `slack_stdio_session_status`,
+ * `slack_stdio_download_file`, `slack_stdio_catalog`.
  *
  * Config: CLI flags > env > defaults (`config.mjs`).
  * **stdout** = MCP JSON-RPC only; **stderr** = operator logs.
@@ -38,6 +39,11 @@ import {
   reauthToolResult,
   takeCompletedReauthToken,
 } from "./session.mjs";
+import {
+  downloadSlackFile,
+  formatCatalog,
+  isOverlayAuthError,
+} from "./overlay.mjs";
 
 const require = createRequire(import.meta.url);
 /** @type {string} Single source of truth: package.json `version`. */
@@ -175,6 +181,42 @@ const LOCAL_TOOLS = [
       properties: {},
     },
   },
+  {
+    name: LOCAL_BRIDGE_TOOL_NAMES[2],
+    description:
+      "Download a Slack file to disk by file_id. Hosted slack_read_file often " +
+      "returns metadata-only for video or large binaries; this writes the bytes " +
+      "to dest_dir (default: OS temp slack-stdio-mcp-downloads) and returns " +
+      "path, mime_type, and size. Max 50 MB. Requires files:read.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        file_id: {
+          type: "string",
+          description: "Slack file ID (e.g. F0ABC12345)",
+        },
+        dest_dir: {
+          type: "string",
+          description: "Directory to write into (created if missing). Default: OS temp.",
+        },
+        max_bytes: {
+          type: "integer",
+          description: "Optional lower size cap in bytes (cannot exceed 50 MB).",
+        },
+      },
+      required: ["file_id"],
+    },
+  },
+  {
+    name: LOCAL_BRIDGE_TOOL_NAMES[3],
+    description:
+      "List local overlay tool names vs the current hosted mcp.slack.com catalog. " +
+      "Use to verify the bridge is proxying the full remote set.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
 ];
 
 /**
@@ -288,6 +330,77 @@ function formatReauthMessageForChat(authorizeUrl) {
 /**
  * @returns {{ content: { type: string, text: string }[] }}
  */
+async function handleCatalog() {
+  /** @type {string[]} */
+  let remoteNames = [];
+  try {
+    const listed = await requireRemote().listTools();
+    remoteNames = (listed.tools ?? []).map((t) => t.name);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`[slack-stdio] catalog: remote listTools failed: ${msg}`);
+  }
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify(
+          formatCatalog({
+            local: [...LOCAL_BRIDGE_TOOL_NAMES],
+            remote: remoteNames,
+          }),
+          null,
+          2,
+        ),
+      },
+    ],
+  };
+}
+
+/**
+ * @param {{ file_id?: string, dest_dir?: string, max_bytes?: number }} args
+ * @param {boolean} [isRetry]
+ * @returns {Promise<{ content: { type: string, text: string }[], isError?: boolean }>}
+ */
+async function handleDownloadFile(args, isRetry = false) {
+  const fileId = String(args.file_id ?? "").trim();
+  if (!fileId) {
+    return {
+      isError: true,
+      content: [{ type: "text", text: "file_id is required" }],
+    };
+  }
+  try {
+    const result = await downloadSlackFile({
+      token: accessToken,
+      fileId,
+      destDir: args.dest_dir,
+      maxBytes: args.max_bytes,
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+    };
+  } catch (e) {
+    const authFail = isOverlayAuthError(e) || isAuthSessionError(e);
+    if (authFail && !isRetry) {
+      const prompt = await recoverOrPromptReauth(
+        e instanceof Error ? e.message : String(e),
+      );
+      if (prompt === null) {
+        return handleDownloadFile(args, true);
+      }
+      return /** @type {{ content: { type: string, text: string }[], isError?: boolean }} */ (
+        prompt
+      );
+    }
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      isError: true,
+      content: [{ type: "text", text: msg }],
+    };
+  }
+}
+
 function handleSessionStatus() {
   const pending = getPendingReauth();
   if (!pending) {
@@ -455,6 +568,14 @@ local.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (name === "slack_stdio_session_status") {
     return handleSessionStatus();
   }
+  if (name === "slack_stdio_catalog") {
+    return handleCatalog();
+  }
+  if (name === "slack_stdio_download_file") {
+    return handleDownloadFile(
+      /** @type {{ file_id?: string, dest_dir?: string, max_bytes?: number }} */ (args),
+    );
+  }
 
   /**
    * @param {boolean} isRetry
@@ -518,7 +639,7 @@ local.setRequestHandler(GetPromptRequestSchema, async (request) => {
 
 const stdio = new StdioServerTransport();
 await local.connect(stdio);
-console.error("[slack-stdio] stdio ready (tools = mcp.slack.com + slack_stdio_reauth)");
+console.error("[slack-stdio] stdio ready (tools = mcp.slack.com + local overlay)");
 
 const shutdown = async () => {
   try {

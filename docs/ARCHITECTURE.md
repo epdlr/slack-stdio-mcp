@@ -5,7 +5,9 @@
 Slack’s official MCP is Streamable HTTP + OAuth at `https://mcp.slack.com/mcp`.
 Claude Code has a smooth path (partner app + host-managed callback). Many other
 agents stall on native HTTP OAuth. This repo is a **local stdio process** that
-owns OAuth/refresh and proxies the hosted tools 1:1.
+owns OAuth/refresh and proxies the hosted tools 1:1. A thin **overlay**
+(`overlay.mjs`) adds local tools that the hosted catalog does not cover well
+(file bytes on disk, catalog dump). It is not a second Slack MCP server.
 
 ## Data path
 
@@ -37,6 +39,7 @@ owns OAuth/refresh and proxies the hosted tools 1:1.
 | `refresh.mjs` | `grant_type=refresh_token`; injectable `fetch` |
 | `oauth-flow.mjs` | Loopback PKCE + `oauth.v2.user.access` |
 | `session.mjs` | Mid-session recovery (detect, force-refresh, interactive re-auth) |
+| `overlay.mjs` | Local tools: download file to disk, catalog dump; injectable `fetch` |
 | `token.mjs` | Paths, save/load, expiry skew, `client_id` isolation |
 | `auth.mjs` | CLI `npm run auth` |
 
@@ -108,4 +111,14 @@ and mirror creds-dir / inject-token into env for deep readers.
 ## Why not reimplement tools
 
 Hosted tools use Slack-specific “hydrated” shapes. This project is a **bridge**,
-not a second Slack MCP server.
+not a second Slack MCP server. Overlay tools stay narrow (download + catalog)
+and reuse the same user token + session recovery. There is no generic
+`slack.com/api` passthrough.
+
+## Overlay download
+
+1. `files.info` with the user Bearer.
+2. Reject if `size` / `content-length` exceeds 50 MB (caller may lower `max_bytes`).
+3. GET `url_private_download` (or `url_private`). Reject HTML bodies.
+4. Write `{fileId}-{safeName}` under `dest_dir` (default OS temp), mode `0600`.
+5. `invalid_auth` / `token_expired` go through the same silent-refresh / re-auth path.

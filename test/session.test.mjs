@@ -400,6 +400,8 @@ describe("local bridge tools structural coverage", () => {
     assert.deepEqual([...LOCAL_BRIDGE_TOOL_NAMES], [
       "slack_stdio_reauth",
       "slack_stdio_session_status",
+      "slack_stdio_download_file",
+      "slack_stdio_catalog",
     ]);
     const serverSrc = fs.readFileSync(path.join(repoRoot, "src", "server.mjs"), "utf8");
     for (const name of LOCAL_BRIDGE_TOOL_NAMES) {

@@ -24,6 +24,8 @@ export const SLACK_REAUTH_REQUIRED = "SLACK_REAUTH_REQUIRED";
 export const LOCAL_BRIDGE_TOOL_NAMES = Object.freeze([
   "slack_stdio_reauth",
   "slack_stdio_session_status",
+  "slack_stdio_download_file",
+  "slack_stdio_catalog",
 ]);
 
 /**

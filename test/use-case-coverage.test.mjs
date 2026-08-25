@@ -76,6 +76,11 @@ const MUST_HAVE = [
     symbols: ["assert-english"],
     testFile: "test/english-residual.test.mjs",
   },
+  {
+    id: "overlay_download_catalog",
+    symbols: ["downloadSlackFile", "formatCatalog"],
+    testFile: "test/overlay.test.mjs",
+  },
 ];
 
 describe("use-case coverage inventory", () => {
