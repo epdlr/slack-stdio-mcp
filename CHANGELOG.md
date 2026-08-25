@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-08-25
+
+### Added
+
+- Overlay tools the hosted catalog omits, using existing user scopes:
+  - `slack_stdio_update_message` (`chat.update`)
+  - `slack_stdio_delete_message` (`chat.delete`)
+  - `slack_stdio_remove_reaction` (`reactions.remove`)
+  - `slack_stdio_scheduled_messages` (`list` / `cancel`)
+
 ## [1.2.0] - 2026-08-25
 
 ### Added
@@ -49,7 +59,8 @@ First public release.
 - CI matrix (ubuntu, windows, macos × Node 20/22), unit tests, English residual gate.
 - npm Trusted Publishing workflow (`.github/workflows/publish.yml`).
 
-[Unreleased]: https://github.com/epdlr/slack-stdio-mcp/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/epdlr/slack-stdio-mcp/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/epdlr/slack-stdio-mcp/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/epdlr/slack-stdio-mcp/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/epdlr/slack-stdio-mcp/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/epdlr/slack-stdio-mcp/releases/tag/v1.0.0

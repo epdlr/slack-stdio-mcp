@@ -78,7 +78,14 @@ const MUST_HAVE = [
   },
   {
     id: "overlay_download_catalog",
-    symbols: ["downloadSlackFile", "formatCatalog"],
+    symbols: [
+      "downloadSlackFile",
+      "formatCatalog",
+      "updateSlackMessage",
+      "deleteSlackMessage",
+      "removeSlackReaction",
+      "scheduledSlackMessages",
+    ],
     testFile: "test/overlay.test.mjs",
   },
 ];

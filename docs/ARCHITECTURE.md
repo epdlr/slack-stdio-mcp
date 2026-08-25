@@ -39,7 +39,7 @@ owns OAuth/refresh and proxies the hosted tools 1:1. A thin **overlay**
 | `refresh.mjs` | `grant_type=refresh_token`; injectable `fetch` |
 | `oauth-flow.mjs` | Loopback PKCE + `oauth.v2.user.access` |
 | `session.mjs` | Mid-session recovery (detect, force-refresh, interactive re-auth) |
-| `overlay.mjs` | Local tools: download file to disk, catalog dump; injectable `fetch` |
+| `overlay.mjs` | Local tools: download, catalog, edit/delete message, remove reaction, scheduled list/cancel |
 | `token.mjs` | Paths, save/load, expiry skew, `client_id` isolation |
 | `auth.mjs` | CLI `npm run auth` |
 
@@ -111,9 +111,9 @@ and mirror creds-dir / inject-token into env for deep readers.
 ## Why not reimplement tools
 
 Hosted tools use Slack-specific “hydrated” shapes. This project is a **bridge**,
-not a second Slack MCP server. Overlay tools stay narrow (download + catalog)
-and reuse the same user token + session recovery. There is no generic
-`slack.com/api` passthrough.
+not a second Slack MCP server. Overlay tools stay narrow (download, catalog,
+edit/delete, unreact, scheduled cancel) and reuse the same user token + session
+recovery. There is no generic `slack.com/api` passthrough.
 
 ## Overlay download
 
@@ -122,3 +122,12 @@ and reuse the same user token + session recovery. There is no generic
 3. GET `url_private_download` (or `url_private`). Reject HTML bodies.
 4. Write `{fileId}-{safeName}` under `dest_dir` (default OS temp), mode `0600`.
 5. `invalid_auth` / `token_expired` go through the same silent-refresh / re-auth path.
+
+## Overlay chat methods
+
+Hosted MCP can send, react (add), and schedule. It cannot edit, delete, unreact,
+or cancel a scheduled message. Those four go through `slackWebApi` in
+`overlay.mjs` (`chat.update`, `chat.delete`, `reactions.remove`,
+`chat.scheduledMessages.list` / `chat.deleteScheduledMessage`) with the same
+user token. No generic Web API passthrough. Invite/kick stay out of the overlay:
+they are not testable in a self-DM without touching other people.

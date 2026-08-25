@@ -26,6 +26,10 @@ export const LOCAL_BRIDGE_TOOL_NAMES = Object.freeze([
   "slack_stdio_session_status",
   "slack_stdio_download_file",
   "slack_stdio_catalog",
+  "slack_stdio_update_message",
+  "slack_stdio_delete_message",
+  "slack_stdio_remove_reaction",
+  "slack_stdio_scheduled_messages",
 ]);
 
 /**

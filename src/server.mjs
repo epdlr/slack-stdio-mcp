@@ -7,7 +7,8 @@
  * with a user Bearer. Mid-session auth: force-refresh, then interactive re-auth
  * (`SLACK_REAUTH_REQUIRED` + authorize URL). Local tools:
  * `slack_stdio_reauth`, `slack_stdio_session_status`,
- * `slack_stdio_download_file`, `slack_stdio_catalog`.
+ * `slack_stdio_download_file`, `slack_stdio_catalog`, plus message
+ * update/delete, reaction remove, and scheduled list/cancel.
  *
  * Config: CLI flags > env > defaults (`config.mjs`).
  * **stdout** = MCP JSON-RPC only; **stderr** = operator logs.
@@ -40,9 +41,13 @@ import {
   takeCompletedReauthToken,
 } from "./session.mjs";
 import {
+  deleteSlackMessage,
   downloadSlackFile,
   formatCatalog,
   isOverlayAuthError,
+  removeSlackReaction,
+  scheduledSlackMessages,
+  updateSlackMessage,
 } from "./overlay.mjs";
 
 const require = createRequire(import.meta.url);
@@ -215,6 +220,72 @@ const LOCAL_TOOLS = [
     inputSchema: {
       type: "object",
       properties: {},
+    },
+  },
+  {
+    name: LOCAL_BRIDGE_TOOL_NAMES[4],
+    description:
+      "Edit a message the user posted (chat.update). Hosted Slack MCP can send " +
+      "but not edit. Requires channel_id, message_ts, and the new message text.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channel_id: { type: "string", description: "Channel, DM, or IM id" },
+        message_ts: { type: "string", description: "Timestamp of the message to edit" },
+        message: { type: "string", description: "Replacement text (Slack mrkdwn)" },
+      },
+      required: ["channel_id", "message_ts", "message"],
+    },
+  },
+  {
+    name: LOCAL_BRIDGE_TOOL_NAMES[5],
+    description:
+      "Delete a message the user posted (chat.delete). Hosted Slack MCP cannot delete.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channel_id: { type: "string", description: "Channel, DM, or IM id" },
+        message_ts: { type: "string", description: "Timestamp of the message to delete" },
+      },
+      required: ["channel_id", "message_ts"],
+    },
+  },
+  {
+    name: LOCAL_BRIDGE_TOOL_NAMES[6],
+    description:
+      "Remove an emoji reaction the user added (reactions.remove). " +
+      "Hosted catalog has add/get only. Emoji name without colons.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channel_id: { type: "string", description: "Channel, DM, or IM id" },
+        message_ts: { type: "string", description: "Timestamp of the message" },
+        emoji: { type: "string", description: "Reaction name without colons (e.g. thumbsup)" },
+      },
+      required: ["channel_id", "message_ts", "emoji"],
+    },
+  },
+  {
+    name: LOCAL_BRIDGE_TOOL_NAMES[7],
+    description:
+      "List or cancel scheduled messages (chat.scheduledMessages.list / " +
+      "chat.deleteScheduledMessage). Hosted slack_schedule_message cannot cancel. " +
+      "action=list (optional channel_id) or action=cancel (channel_id + scheduled_message_id).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          description: "list or cancel",
+          enum: ["list", "cancel"],
+        },
+        channel_id: { type: "string", description: "Required for cancel; optional filter for list" },
+        scheduled_message_id: {
+          type: "string",
+          description: "Required when action=cancel",
+        },
+      },
+      required: ["action"],
     },
   },
 ];
@@ -401,6 +472,37 @@ async function handleDownloadFile(args, isRetry = false) {
   }
 }
 
+/**
+ * @param {() => Promise<unknown>} run
+ * @param {boolean} [isRetry]
+ * @returns {Promise<{ content: { type: string, text: string }[], isError?: boolean }>}
+ */
+async function handleOverlayJson(run, isRetry = false) {
+  try {
+    const result = await run();
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+    };
+  } catch (e) {
+    const authFail = isOverlayAuthError(e) || isAuthSessionError(e);
+    if (authFail && !isRetry) {
+      const prompt = await recoverOrPromptReauth(
+        e instanceof Error ? e.message : String(e),
+      );
+      if (prompt === null) {
+        return handleOverlayJson(run, true);
+      }
+      return /** @type {{ content: { type: string, text: string }[], isError?: boolean }} */ (
+        prompt
+      );
+    }
+    return {
+      isError: true,
+      content: [{ type: "text", text: e instanceof Error ? e.message : String(e) }],
+    };
+  }
+}
+
 function handleSessionStatus() {
   const pending = getPendingReauth();
   if (!pending) {
@@ -574,6 +676,53 @@ local.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (name === "slack_stdio_download_file") {
     return handleDownloadFile(
       /** @type {{ file_id?: string, dest_dir?: string, max_bytes?: number }} */ (args),
+    );
+  }
+  if (name === "slack_stdio_update_message") {
+    const a = /** @type {{ channel_id?: string, message_ts?: string, message?: string }} */ (args);
+    return handleOverlayJson(() =>
+      updateSlackMessage({
+        token: accessToken,
+        channelId: String(a.channel_id ?? ""),
+        messageTs: String(a.message_ts ?? ""),
+        message: String(a.message ?? ""),
+      }),
+    );
+  }
+  if (name === "slack_stdio_delete_message") {
+    const a = /** @type {{ channel_id?: string, message_ts?: string }} */ (args);
+    return handleOverlayJson(() =>
+      deleteSlackMessage({
+        token: accessToken,
+        channelId: String(a.channel_id ?? ""),
+        messageTs: String(a.message_ts ?? ""),
+      }),
+    );
+  }
+  if (name === "slack_stdio_remove_reaction") {
+    const a = /** @type {{ channel_id?: string, message_ts?: string, emoji?: string }} */ (args);
+    return handleOverlayJson(() =>
+      removeSlackReaction({
+        token: accessToken,
+        channelId: String(a.channel_id ?? ""),
+        messageTs: String(a.message_ts ?? ""),
+        emoji: String(a.emoji ?? ""),
+      }),
+    );
+  }
+  if (name === "slack_stdio_scheduled_messages") {
+    const a = /** @type {{
+      action?: string,
+      channel_id?: string,
+      scheduled_message_id?: string,
+    }} */ (args);
+    return handleOverlayJson(() =>
+      scheduledSlackMessages({
+        token: accessToken,
+        action: String(a.action ?? ""),
+        channelId: a.channel_id,
+        scheduledMessageId: a.scheduled_message_id,
+      }),
     );
   }
 

@@ -20,7 +20,7 @@ Agent  ──stdio MCP──►  slack-stdio-mcp  ──Bearer──►  mcp.sla
                               ├─ valid access token → reuse
                               ├─ expired + refresh_token → silent refresh
                               ├─ no token → browser OAuth (PKCE)
-                              └─ overlay: slack_stdio_download_file, slack_stdio_catalog
+                              └─ overlay: download, catalog, edit/delete, unreact, scheduled
 ```
 
 ## Requirements
@@ -150,6 +150,10 @@ flows are not reused; the next start gets a fresh URL.
 | `slack_stdio_session_status` | Pending re-auth + authorize URL if any |
 | `slack_stdio_download_file` | Write a Slack `file_id` to disk (hosted `slack_read_file` is often metadata-only for video). Max 50 MB. `files:read` |
 | `slack_stdio_catalog` | JSON of local overlay names vs the current `mcp.slack.com` catalog |
+| `slack_stdio_update_message` | Edit a message the user posted (`chat.update`). Hosted MCP can send only |
+| `slack_stdio_delete_message` | Delete a message the user posted (`chat.delete`) |
+| `slack_stdio_remove_reaction` | Remove a reaction the user added (`reactions.remove`). Hosted catalog has add/get |
+| `slack_stdio_scheduled_messages` | `action=list` or `action=cancel` for scheduled messages. Hosted `slack_schedule_message` cannot cancel |
 
 Startup OAuth waits up to `SLACK_OAUTH_TIMEOUT_MS` (default **180000**). On
 timeout the process exits `1` (host must restart). Keep host startup timeout

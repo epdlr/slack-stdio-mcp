@@ -11,12 +11,18 @@ import {
   DEFAULT_MAX_DOWNLOAD_BYTES,
   OverlayError,
   defaultDownloadDir,
+  deleteSlackMessage,
   downloadSlackFile,
   formatCatalog,
   isOverlayAuthError,
+  removeSlackReaction,
   resolveDownloadDestPath,
   resolveMaxBytes,
   sanitizeDownloadBasename,
+  sanitizeEmojiName,
+  scheduledSlackMessages,
+  slackWebApi,
+  updateSlackMessage,
 } from "../src/overlay.mjs";
 
 describe("sanitizeDownloadBasename", () => {
@@ -226,6 +232,110 @@ describe("downloadSlackFile (mocked fetch)", () => {
           }),
         }),
       (err) => err instanceof OverlayError && err.code === "file_not_downloadable",
+    );
+  });
+});
+
+describe("message / reaction / scheduled overlay", () => {
+  it("strips colons from emoji names", () => {
+    assert.equal(sanitizeEmojiName(":thumbsup:"), "thumbsup");
+    assert.throws(() => sanitizeEmojiName("  "), OverlayError);
+  });
+
+  /**
+   * @param {string} expectedMethod
+   * @param {Record<string, unknown>} payload
+   */
+  function jsonOk(expectedMethod, payload) {
+    return async (url, init) => {
+      assert.ok(String(url).endsWith(`/api/${expectedMethod}`));
+      const body = JSON.parse(String(init?.body || "{}"));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => payload,
+        _body: body,
+      };
+    };
+  }
+
+  it("updateSlackMessage posts chat.update", async () => {
+    /** @type {Record<string, unknown> | undefined} */
+    let sent;
+    const fetchFn = async (url, init) => {
+      sent = JSON.parse(String(init?.body || "{}"));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, channel: "D1", ts: "1.2", text: "edited" }),
+      };
+    };
+    const out = await updateSlackMessage({
+      token: "xoxe-test",
+      channelId: "D1",
+      messageTs: "1.2",
+      message: "edited",
+      fetchFn,
+    });
+    assert.deepEqual(sent, { channel: "D1", ts: "1.2", text: "edited" });
+    assert.equal(out.text, "edited");
+  });
+
+  it("deleteSlackMessage posts chat.delete", async () => {
+    const out = await deleteSlackMessage({
+      token: "xoxe-test",
+      channelId: "D1",
+      messageTs: "1.2",
+      fetchFn: jsonOk("chat.delete", { ok: true }),
+    });
+    assert.deepEqual(out, { channel: "D1", ts: "1.2" });
+  });
+
+  it("removeSlackReaction posts reactions.remove", async () => {
+    const out = await removeSlackReaction({
+      token: "xoxe-test",
+      channelId: "D1",
+      messageTs: "1.2",
+      emoji: ":eyes:",
+      fetchFn: jsonOk("reactions.remove", { ok: true }),
+    });
+    assert.equal(out.emoji, "eyes");
+  });
+
+  it("scheduled list/cancel map Slack payloads", async () => {
+    const listed = await scheduledSlackMessages({
+      token: "xoxe-test",
+      action: "list",
+      channelId: "D1",
+      fetchFn: jsonOk("chat.scheduledMessages.list", {
+        ok: true,
+        scheduled_messages: [{ id: "Q1", channel_id: "D1", post_at: 99, text: "later" }],
+      }),
+    });
+    assert.equal(listed.count, 1);
+    const cancelled = await scheduledSlackMessages({
+      token: "xoxe-test",
+      action: "cancel",
+      channelId: "D1",
+      scheduledMessageId: "Q1",
+      fetchFn: jsonOk("chat.deleteScheduledMessage", { ok: true }),
+    });
+    assert.equal(cancelled.cancelled, true);
+  });
+
+  it("slackWebApi maps missing_scope", async () => {
+    await assert.rejects(
+      () =>
+        slackWebApi({
+          token: "xoxe-test",
+          method: "pins.list",
+          fetchFn: async () => ({
+            ok: true,
+            status: 200,
+            json: async () => ({ ok: false, error: "missing_scope" }),
+          }),
+        }),
+      (err) => err instanceof OverlayError && err.code === "missing_scope",
     );
   });
 });
