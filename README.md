@@ -186,6 +186,8 @@ npx -y slack-stdio-mcp -- --client-id 123.456 --oauth-path /oauth/callback
 npx -y slack-stdio-mcp -- --skip-oauth --creds-dir /tmp/empty-creds
 ```
 
+A leading `--` in `args` (Cursor / `npx`) is ignored; `--profile` after it still applies.
+
 **Profiles:** the same `--profile` name in every host/repo reuses
 `~/.slack-stdio-mcp/profiles/<name>/…` (no absolute paths in config). Grok does
 not inject the MCP server key into the process — put the profile string in

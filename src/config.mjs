@@ -102,8 +102,10 @@ export function parseArgv(argv) {
       continue;
     }
 
+    // Hosts (Cursor, some npx invocations) pass a literal `--` before flags.
+    // Skip it and keep parsing; do not drop `--profile` / `--creds-dir`.
     if (raw === "--") {
-      break;
+      continue;
     }
 
     if (raw === "-h" || raw === "--help") {

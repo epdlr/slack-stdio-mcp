@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-09-21
+
+### Fixed
+
+- `parseArgv` no longer stops at a bare `--`. Cursor and some `npx` hosts
+  pass `-- --profile <name>`; the profile (and later flags) were dropped and
+  the default credential store was used instead.
+
 ## [1.3.0] - 2026-08-25
 
 ### Added
@@ -59,7 +67,8 @@ First public release.
 - CI matrix (ubuntu, windows, macos × Node 20/22), unit tests, English residual gate.
 - npm Trusted Publishing workflow (`.github/workflows/publish.yml`).
 
-[Unreleased]: https://github.com/epdlr/slack-stdio-mcp/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/epdlr/slack-stdio-mcp/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/epdlr/slack-stdio-mcp/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/epdlr/slack-stdio-mcp/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/epdlr/slack-stdio-mcp/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/epdlr/slack-stdio-mcp/compare/v1.0.0...v1.1.0

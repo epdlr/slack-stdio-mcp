@@ -31,6 +31,12 @@ describe("parseArgv", () => {
     const p = parseArgv(["--nope", "x"]);
     assert.ok(p.unknown.some((u) => u.includes("nope") || u === "--nope"));
   });
+
+  it("bare -- is skipped so flags after it still parse", () => {
+    const p = parseArgv(["--", "--profile", "chooseme", "--skip-oauth"]);
+    assert.equal(p.profile, "chooseme");
+    assert.equal(p.skipOAuth, true);
+  });
 });
 
 describe("resolveConfig (shipped)", () => {
@@ -159,6 +165,19 @@ describe("resolveConfig (shipped)", () => {
     });
     assert.equal(c.credsDir, "/explicit/creds");
     assert.equal(c.profile, "user_cl");
+  });
+
+  it("npx/Cursor argv -- --profile still resolves the named store", () => {
+    const home = "/tmp/fake-home-profile-ddash";
+    const c = resolveConfig({
+      argv: ["--", "--profile", "chooseme"],
+      env: { HOME: home },
+    });
+    assert.equal(c.profile, "chooseme");
+    assert.equal(
+      c.credsDir,
+      path.join(home, ".slack-stdio-mcp", "profiles", "chooseme"),
+    );
   });
 
   it("same profile name yields the same path (share across repos)", () => {
