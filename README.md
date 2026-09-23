@@ -132,6 +132,13 @@ Path: `…/by-client/<client_id>.json`. Override with `--creds-dir` /
 3. Else refresh via `oauth.v2.access` (`grant_type=refresh_token`)
 4. On refresh failure: clear that app’s file → OAuth (or fail if skip-oauth)
 
+### No session
+
+stdio starts even when Slack has no usable token. The host handshake does not
+wait on the browser. The first tool call that needs Slack returns
+`SLACK_REAUTH_REQUIRED` and a clickable authorize URL. The agent should ask
+the user to open that URL and press **Allow**, then retry.
+
 ### Mid-session session loss
 
 If a Slack tool fails with an auth error (`isError: true` or thrown error):

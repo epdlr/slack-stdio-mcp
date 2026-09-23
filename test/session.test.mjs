@@ -19,9 +19,11 @@ import {
   beginInteractiveReauth,
   decideAuthRecovery,
   forceRefreshAccessToken,
+  recoverStartupConnection,
   formatReauthMessage,
   getPendingReauth,
   isAuthSessionError,
+  missingSlackSessionDetail,
   reauthToolResult,
 } from "../src/session.mjs";
 import { loadCredentials, saveCredentials } from "../src/token.mjs";
@@ -195,6 +197,81 @@ describe("decideAuthRecovery (shipped pure policy)", () => {
       decideAuthRecovery({ recovered: false, skipOAuth: false }),
       "interactive_reauth",
     );
+  });
+});
+
+describe("missingSlackSessionDetail", () => {
+  it("tells the agent to ask the user to authorize Slack", () => {
+    const text = missingSlackSessionDetail("slack_read_thread");
+    assert.match(text, /No Slack session/);
+    assert.match(text, /slack_read_thread/);
+    assert.match(text, /Ask the user to open the authorize URL/);
+  });
+});
+
+describe("recoverStartupConnection", () => {
+  it("refreshes and reconnects on invalid_token without opening OAuth", async () => {
+    /** @type {string[]} */
+    const connected = [];
+    let oauthCalls = 0;
+    const result = await recoverStartupConnection({
+      error: new Error('{"error":{"message":"invalid_token"}}'),
+      refresh: async () => "refreshed-token",
+      connect: async (token) => {
+        connected.push(token);
+      },
+      runOAuth: async () => {
+        oauthCalls += 1;
+        return "oauth-token";
+      },
+    });
+    assert.deepEqual(result, { ok: true, via: "refresh" });
+    assert.deepEqual(connected, ["refreshed-token"]);
+    assert.equal(oauthCalls, 0);
+  });
+
+  it("opens OAuth when refresh cannot produce a token", async () => {
+    /** @type {string[]} */
+    const connected = [];
+    const result = await recoverStartupConnection({
+      error: new Error("invalid_token"),
+      refresh: async () => null,
+      connect: async (token) => {
+        connected.push(token);
+      },
+      runOAuth: async () => "oauth-token",
+    });
+    assert.deepEqual(result, { ok: true, via: "oauth" });
+    assert.deepEqual(connected, ["oauth-token"]);
+  });
+
+  it("does not open OAuth for a non-auth connect failure or when skip-oauth is set", async () => {
+    let oauthCalls = 0;
+    const network = await recoverStartupConnection({
+      error: new Error("ECONNREFUSED"),
+      refresh: async () => "should-not-run",
+      connect: async () => {},
+      runOAuth: async () => {
+        oauthCalls += 1;
+        return "oauth-token";
+      },
+    });
+    assert.equal(network.ok, false);
+    if (!network.ok) {
+      assert.equal(network.reason, "not_auth");
+    }
+    const skipped = await recoverStartupConnection({
+      error: new Error("invalid_token"),
+      skipOAuth: true,
+      refresh: async () => null,
+      connect: async () => {},
+      runOAuth: async () => {
+        oauthCalls += 1;
+        return "oauth-token";
+      },
+    });
+    assert.deepEqual(skipped, { ok: false, reason: "skip_oauth" });
+    assert.equal(oauthCalls, 0);
   });
 });
 

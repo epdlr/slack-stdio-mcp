@@ -1,6 +1,6 @@
 {
   "name": "slack-stdio-mcp",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "private": false,
   "type": "module",
   "description": "Agent-agnostic MCP stdio bridge to https://mcp.slack.com/mcp (user OAuth, PKCE, token refresh, tool proxy, local file download overlay)",

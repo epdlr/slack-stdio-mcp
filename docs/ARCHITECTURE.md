@@ -48,6 +48,8 @@ owns OAuth/refresh and proxies the hosted tools 1:1. A thin **overlay**
 1. **OAuth success** (`oauth.v2.user.access`): persist `access_token`,
    `refresh_token` (if any), `expires_at`, `client_id`, and `raw` response.
 2. **Ensure**: access is invalid if within `EXPIRY_SKEW_MS` (5 min) of expiry.
+   `expires_at` may be ISO-8601 or a legacy unix timestamp (seconds or ms).
+   A present but unreadable expiry is invalid, not "never expires".
 3. **Refresh**: `POST https://slack.com/api/oauth.v2.access` with
    `grant_type=refresh_token` (+ optional `client_secret`). Rewrite the same
    by-client file (Slack often rotates `refresh_token`).
@@ -74,6 +76,16 @@ On proxied tool auth failure (`session.mjs`):
 
 Startup OAuth uses the same flow with `SLACK_OAUTH_TIMEOUT_MS` (default 180 s);
 timeout → process exit 1.
+
+Startup does **not** wait for Slack. stdio answers `initialize` immediately.
+An existing token is attached in the background (`tryAttachExistingSession`):
+valid access, else refresh, else leave `remote` unset. No browser at startup.
+
+If a tool, resource, or prompt needs Slack and there is still no session, the
+handler returns `SLACK_REAUTH_REQUIRED` with an authorize URL
+(`missingSlackSessionDetail`). The agent asks the user to open that URL and
+press Allow, then retries. `skipOAuth` still refuses the browser and explains
+why. Non-auth connect failures are logged; the process stays up.
 
 ## Config
 

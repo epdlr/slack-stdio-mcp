@@ -343,6 +343,67 @@ export async function takeCompletedReauthToken(opts = {}) {
 }
 
 /**
+ * Text for a tool result when Slack has no session.
+ * The agent should relay this and ask the user to authorize.
+ *
+ * @param {string} toolName
+ * @returns {string}
+ */
+export function missingSlackSessionDetail(toolName) {
+  const name = toolName?.trim() || "this tool";
+  return (
+    `No Slack session. \`${name}\` cannot run until the user authorizes Slack. ` +
+    "Ask the user to open the authorize URL and press Allow, then retry the Slack action."
+  );
+}
+
+/**
+ * Startup remote connect failed. An auth rejection must not exit before stdio:
+ * force-refresh, then OAuth, then reconnect. Non-auth failures stay fatal.
+ *
+ * @param {{
+ *   error: unknown,
+ *   skipOAuth?: boolean,
+ *   refresh: () => Promise<string | null>,
+ *   connect: (token: string) => Promise<void>,
+ *   runOAuth: () => Promise<string>,
+ * }} opts
+ * @returns {Promise<
+ *   | { ok: true, via: "refresh" | "oauth" }
+ *   | { ok: false, reason: "not_auth" | "skip_oauth" | "reconnect" | "oauth", error?: unknown }
+ * >}
+ */
+export async function recoverStartupConnection(opts) {
+  if (!isAuthSessionError(opts.error)) {
+    return { ok: false, reason: "not_auth", error: opts.error };
+  }
+
+  const refreshed = await opts.refresh();
+  if (refreshed) {
+    try {
+      await opts.connect(refreshed);
+      return { ok: true, via: "refresh" };
+    } catch (error) {
+      if (!isAuthSessionError(error)) {
+        return { ok: false, reason: "reconnect", error };
+      }
+    }
+  }
+
+  if (opts.skipOAuth) {
+    return { ok: false, reason: "skip_oauth" };
+  }
+
+  try {
+    const token = await opts.runOAuth();
+    await opts.connect(token);
+    return { ok: true, via: "oauth" };
+  } catch (error) {
+    return { ok: false, reason: "oauth", error };
+  }
+}
+
+/**
  * @internal test helper
  */
 export function _resetPendingReauthForTests() {

@@ -58,7 +58,12 @@ const MUST_HAVE = [
   },
   {
     id: "auth_recovery_policy",
-    symbols: ["decideAuthRecovery", "LOCAL_BRIDGE_TOOL_NAMES"],
+    symbols: [
+      "decideAuthRecovery",
+      "recoverStartupConnection",
+      "missingSlackSessionDetail",
+      "LOCAL_BRIDGE_TOOL_NAMES",
+    ],
     testFile: "test/session.test.mjs",
   },
   {

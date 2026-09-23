@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-09-23
+
+### Fixed
+
+- Legacy credential files that stored `expires_at` as a unix timestamp were
+  treated as never-expiring (`Date.parse` of a number is `NaN`). Those tokens
+  are now expired or valid according to the timestamp, so startup refresh runs.
+- When `mcp.slack.com` rejects the bearer at startup (`invalid_token`), the
+  process no longer exits before the stdio handshake.
+- stdio always starts, even with no Slack session. Tool calls return
+  `SLACK_REAUTH_REQUIRED` and an authorize URL so the agent can ask the user
+  to press Allow, instead of blocking startup on the browser.
+
 ## [1.3.1] - 2026-09-21
 
 ### Fixed
@@ -67,7 +80,8 @@ First public release.
 - CI matrix (ubuntu, windows, macos × Node 20/22), unit tests, English residual gate.
 - npm Trusted Publishing workflow (`.github/workflows/publish.yml`).
 
-[Unreleased]: https://github.com/epdlr/slack-stdio-mcp/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/epdlr/slack-stdio-mcp/compare/v1.3.2...HEAD
+[1.3.2]: https://github.com/epdlr/slack-stdio-mcp/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/epdlr/slack-stdio-mcp/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/epdlr/slack-stdio-mcp/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/epdlr/slack-stdio-mcp/compare/v1.1.0...v1.2.0

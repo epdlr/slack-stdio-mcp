@@ -23,6 +23,7 @@ import {
   credentialsPathFor,
   isAccessTokenValid,
   loadCredentials,
+  parseExpiryMs,
   pickAccessToken,
   resolveAccessToken,
   saveCredentials,
@@ -211,6 +212,48 @@ describe("expiry detection", () => {
       resolveAccessToken(clientId, { now: Date.parse("2026-01-01T00:50:00.000Z") }),
       "legacy-access",
     );
+  });
+
+  it("treats a legacy unix-seconds expires_at as expired", () => {
+    const unixSeconds = 1788940976.5434098;
+    assert.equal(parseExpiryMs(unixSeconds), Math.round(unixSeconds * 1000));
+    assert.equal(
+      isAccessTokenValid(
+        {
+          access_token: "dead-unix",
+          expires_at: unixSeconds,
+        },
+        { now: Date.parse("2026-09-23T12:00:00.000Z") },
+      ),
+      false,
+    );
+  });
+
+  it("accepts a future unix-seconds expires_at and a millisecond timestamp", () => {
+    const futureSeconds = Date.parse("2026-12-01T00:00:00.000Z") / 1000;
+    assert.equal(
+      isAccessTokenValid(
+        { access_token: "future-unix", expires_at: futureSeconds },
+        { now: Date.parse("2026-09-23T12:00:00.000Z") },
+      ),
+      true,
+    );
+    const futureMs = Date.parse("2026-12-01T00:00:00.000Z");
+    assert.equal(
+      isAccessTokenValid(
+        { access_token: "future-ms", expires_at: futureMs },
+        { now: Date.parse("2026-09-23T12:00:00.000Z") },
+      ),
+      true,
+    );
+  });
+
+  it("does not treat an unreadable expires_at as never-expiring", () => {
+    assert.equal(
+      isAccessTokenValid({ access_token: "bad-exp", expires_at: "not-a-date" }),
+      false,
+    );
+    assert.equal(isAccessTokenValid({ access_token: "legacy-no-exp" }), true);
   });
 });
 

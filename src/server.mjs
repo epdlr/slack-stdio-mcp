@@ -4,8 +4,10 @@
  * @description MCP stdio bridge entry: config → token → proxy ↔ mcp.slack.com.
  *
  * Does not implement Slack tools; proxies the hosted catalog over Streamable HTTP
- * with a user Bearer. Mid-session auth: force-refresh, then interactive re-auth
- * (`SLACK_REAUTH_REQUIRED` + authorize URL). Local tools:
+ * with a user Bearer. stdio starts even when Slack has no session. Tool calls
+ * then return `SLACK_REAUTH_REQUIRED` plus an authorize URL so the agent can
+ * ask the user to Allow. A usable token still attaches in the background.
+ * Local tools:
  * `slack_stdio_reauth`, `slack_stdio_session_status`,
  * `slack_stdio_download_file`, `slack_stdio_catalog`, plus message
  * update/delete, reaction remove, and scheduled list/cancel.
@@ -28,8 +30,7 @@ import {
   GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { loadRuntimeConfig } from "./config.mjs";
-import { ensureAccessToken } from "./ensure-token.mjs";
-import { runUserOAuth } from "./oauth-flow.mjs";
+import { resolveOrRefreshAccessToken } from "./refresh.mjs";
 import {
   LOCAL_BRIDGE_TOOL_NAMES,
   beginInteractiveReauth,
@@ -37,6 +38,7 @@ import {
   forceRefreshAccessToken,
   getPendingReauth,
   isAuthSessionError,
+  missingSlackSessionDetail,
   reauthToolResult,
   takeCompletedReauthToken,
 } from "./session.mjs";
@@ -63,6 +65,14 @@ const SKIP_OAUTH = config.skipOAuth;
 let accessToken = "";
 /** @type {Client | null} */
 let remote = null;
+/**
+ * Resolves when the silent session attach finishes (success or "no session").
+ * Tool handlers await this. It is replaced before stdio starts so initialize
+ * is not blocked on Slack.
+ *
+ * @type {Promise<void>}
+ */
+let sessionReady = Promise.resolve();
 
 /**
  * @param {string} token
@@ -104,58 +114,71 @@ function requireRemote() {
   return remote;
 }
 
-// --- Phase 1: token (valid disk → refresh → OAuth) ---
-try {
+/**
+ * Silent attach of an existing token. Never opens a browser and never rejects:
+ * stdio is already up (or about to be). Tool calls ask the user to authorize.
+ *
+ * @returns {Promise<void>}
+ */
+async function tryAttachExistingSession() {
   console.error(`[slack-stdio] Resolving token for client_id=${CLIENT_ID}…`);
-  accessToken = await ensureAccessToken({
-    clientId: CLIENT_ID,
-    clientSecret: config.clientSecret,
-    skipOAuth: SKIP_OAUTH,
-    runOAuth: async ({ clientId, clientSecret }) => {
+  try {
+    const token = await resolveOrRefreshAccessToken(CLIENT_ID, {
+      clientSecret: config.clientSecret,
+    });
+    if (!token) {
       console.error(
-        `[slack-stdio] No usable token → browser OAuth (PKCE) client_id=${clientId}…`,
+        "[slack-stdio] No Slack session. stdio stays up; tool calls return an authorize URL.",
       );
-      return runUserOAuth({
-        clientId,
-        clientSecret,
-        host: config.oauthHost,
-        port: config.oauthPort,
-        callbackPath: config.oauthPath,
+      return;
+    }
+    try {
+      await connectRemote(token);
+    } catch (connectError) {
+      const msg = connectError instanceof Error ? connectError.message : String(connectError);
+      console.error(`[slack-stdio] Connect to ${MCP_URL} failed: ${msg}`);
+      if (!isAuthSessionError(connectError)) {
+        console.error("[slack-stdio] stdio stays up. Slack tools will ask the user to authorize.");
+        return;
+      }
+      const refreshed = await forceRefreshAccessToken(CLIENT_ID, {
+        clientSecret: config.clientSecret,
       });
-    },
-  });
-  console.error(`[slack-stdio] Token ready for client_id=${CLIENT_ID}`);
-} catch (e) {
-  const msg = e instanceof Error ? e.message : String(e);
-  console.error(`[slack-stdio] Auth failed: ${msg}`);
-  process.exit(1);
-}
-
-// --- Phase 2: remote MCP client ---
-try {
-  await connectRemote(accessToken);
-} catch (e) {
-  const msg = e instanceof Error ? e.message : String(e);
-  console.error(`[slack-stdio] Connect to ${MCP_URL} failed: ${msg}`);
-  console.error("[slack-stdio] Check MCP enable on the app, scopes, and token validity.");
-  process.exit(1);
-}
-
-try {
-  const listed = await requireRemote().listTools();
-  const n = listed.tools?.length ?? 0;
-  console.error(`[slack-stdio] Remote tools: ${n}`);
-  if (n > 0 && listed.tools) {
-    console.error(
-      `[slack-stdio] Names: ${listed.tools
-        .map((t) => t.name)
-        .slice(0, 20)
-        .join(", ")}${n > 20 ? "…" : ""}`,
-    );
+      if (!refreshed) {
+        console.error(
+          "[slack-stdio] Token rejected. stdio stays up; the next tool call asks the user to authorize.",
+        );
+        return;
+      }
+      await connectRemote(refreshed);
+    }
+    await logRemoteTools();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`[slack-stdio] Session attach failed (${msg}). stdio stays up.`);
   }
-} catch (e) {
-  const msg = e instanceof Error ? e.message : String(e);
-  console.error(`[slack-stdio] remote listTools failed (continuing anyway): ${msg}`);
+}
+
+/**
+ * @returns {Promise<void>}
+ */
+async function logRemoteTools() {
+  try {
+    const listed = await requireRemote().listTools();
+    const n = listed.tools?.length ?? 0;
+    console.error(`[slack-stdio] Remote tools: ${n}`);
+    if (n > 0 && listed.tools) {
+      console.error(
+        `[slack-stdio] Names: ${listed.tools
+          .map((t) => t.name)
+          .slice(0, 20)
+          .join(", ")}${n > 20 ? "…" : ""}`,
+      );
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`[slack-stdio] remote listTools failed (continuing anyway): ${msg}`);
+  }
 }
 
 /** Local bridge tools (not from mcp.slack.com). Names: LOCAL_BRIDGE_TOOL_NAMES. */
@@ -402,6 +425,10 @@ function formatReauthMessageForChat(authorizeUrl) {
  * @returns {{ content: { type: string, text: string }[] }}
  */
 async function handleCatalog() {
+  const blocked = await authorizationGate(missingSlackSessionDetail("slack_stdio_catalog"));
+  if (blocked) {
+    return blocked;
+  }
   /** @type {string[]} */
   let remoteNames = [];
   try {
@@ -434,6 +461,12 @@ async function handleCatalog() {
  * @returns {Promise<{ content: { type: string, text: string }[], isError?: boolean }>}
  */
 async function handleDownloadFile(args, isRetry = false) {
+  if (!isRetry) {
+    const blocked = await authorizationGate(missingSlackSessionDetail("slack_stdio_download_file"));
+    if (blocked) {
+      return blocked;
+    }
+  }
   const fileId = String(args.file_id ?? "").trim();
   if (!fileId) {
     return {
@@ -475,9 +508,16 @@ async function handleDownloadFile(args, isRetry = false) {
 /**
  * @param {() => Promise<unknown>} run
  * @param {boolean} [isRetry]
+ * @param {string} [toolName]
  * @returns {Promise<{ content: { type: string, text: string }[], isError?: boolean }>}
  */
-async function handleOverlayJson(run, isRetry = false) {
+async function handleOverlayJson(run, isRetry = false, toolName = "Slack tool") {
+  if (!isRetry) {
+    const blocked = await authorizationGate(missingSlackSessionDetail(toolName));
+    if (blocked) {
+      return blocked;
+    }
+  }
   try {
     const result = await run();
     return {
@@ -490,7 +530,7 @@ async function handleOverlayJson(run, isRetry = false) {
         e instanceof Error ? e.message : String(e),
       );
       if (prompt === null) {
-        return handleOverlayJson(run, true);
+        return handleOverlayJson(run, true, toolName);
       }
       return /** @type {{ content: { type: string, text: string }[], isError?: boolean }} */ (
         prompt
@@ -503,8 +543,12 @@ async function handleOverlayJson(run, isRetry = false) {
   }
 }
 
-function handleSessionStatus() {
+async function handleSessionStatus() {
+  await sessionReady;
   const pending = getPendingReauth();
+  if (!pending && !remote) {
+    return recoverOrPromptReauth(missingSlackSessionDetail("slack_stdio_session_status"));
+  }
   if (!pending) {
     return {
       content: [
@@ -513,6 +557,7 @@ function handleSessionStatus() {
           text: JSON.stringify(
             {
               pendingReauth: false,
+              connected: true,
               clientId: CLIENT_ID,
               hasAccessToken: Boolean(accessToken),
             },
@@ -628,6 +673,49 @@ async function recoverOrPromptReauth(detail) {
   });
 }
 
+/**
+ * Wait for the silent attach. If Slack is still disconnected, return the
+ * authorize-URL tool result (agent must ask the user to Allow). `null` means
+ * the caller can use the remote session.
+ *
+ * @param {string} detail
+ * @returns {Promise<{ content: { type: string, text: string }[], isError?: boolean } | null>}
+ */
+async function authorizationGate(detail) {
+  await sessionReady;
+  if (remote && accessToken) {
+    return null;
+  }
+  const prompt = await recoverOrPromptReauth(detail);
+  if (prompt === null) {
+    return null;
+  }
+  return /** @type {{ content: { type: string, text: string }[], isError?: boolean }} */ (
+    prompt
+  );
+}
+
+/**
+ * @returns {typeof LOCAL_TOOLS}
+ */
+function localToolsForAgent() {
+  if (remote) {
+    return LOCAL_TOOLS;
+  }
+  return LOCAL_TOOLS.map((tool) => {
+    if (tool.name !== "slack_stdio_reauth" && tool.name !== "slack_stdio_session_status") {
+      return tool;
+    }
+    return {
+      ...tool,
+      description:
+        "No Slack session. Ask the user to authorize Slack (open the URL and press Allow) " +
+        "before any Slack action, then retry. " +
+        tool.description,
+    };
+  });
+}
+
 // --- Phase 3: local MCP server (stdio to the agent) ---
 const local = new Server(
   { name: "slack-stdio", version: VERSION },
@@ -641,21 +729,22 @@ const local = new Server(
 );
 
 local.setRequestHandler(ListToolsRequestSchema, async () => {
+  await sessionReady;
   try {
     const remoteListed = await requireRemote().listTools();
     return {
-      tools: [...LOCAL_TOOLS, ...(remoteListed.tools ?? [])],
+      tools: [...localToolsForAgent(), ...(remoteListed.tools ?? [])],
     };
   } catch (e) {
     if (isAuthSessionError(e)) {
       const recovered = await trySilentSessionRecover();
       if (recovered) {
         const remoteListed = await requireRemote().listTools();
-        return { tools: [...LOCAL_TOOLS, ...(remoteListed.tools ?? [])] };
+        return { tools: [...localToolsForAgent(), ...(remoteListed.tools ?? [])] };
       }
     }
-    // Still expose local re-auth tools so the agent can recover.
-    return { tools: [...LOCAL_TOOLS] };
+    // Local tools stay listed so the agent can ask the user to authorize.
+    return { tools: [...localToolsForAgent()] };
   }
 });
 
@@ -687,6 +776,8 @@ local.setRequestHandler(CallToolRequestSchema, async (request) => {
         messageTs: String(a.message_ts ?? ""),
         message: String(a.message ?? ""),
       }),
+      false,
+      "slack_stdio_update_message",
     );
   }
   if (name === "slack_stdio_delete_message") {
@@ -697,6 +788,8 @@ local.setRequestHandler(CallToolRequestSchema, async (request) => {
         channelId: String(a.channel_id ?? ""),
         messageTs: String(a.message_ts ?? ""),
       }),
+      false,
+      "slack_stdio_delete_message",
     );
   }
   if (name === "slack_stdio_remove_reaction") {
@@ -708,6 +801,8 @@ local.setRequestHandler(CallToolRequestSchema, async (request) => {
         messageTs: String(a.message_ts ?? ""),
         emoji: String(a.emoji ?? ""),
       }),
+      false,
+      "slack_stdio_remove_reaction",
     );
   }
   if (name === "slack_stdio_scheduled_messages") {
@@ -723,6 +818,8 @@ local.setRequestHandler(CallToolRequestSchema, async (request) => {
         channelId: a.channel_id,
         scheduledMessageId: a.scheduled_message_id,
       }),
+      false,
+      "slack_stdio_scheduled_messages",
     );
   }
 
@@ -731,6 +828,12 @@ local.setRequestHandler(CallToolRequestSchema, async (request) => {
    * @returns {Promise<unknown>}
    */
   async function callRemote(isRetry) {
+    if (!isRetry) {
+      const blocked = await authorizationGate(missingSlackSessionDetail(name));
+      if (blocked) {
+        return blocked;
+      }
+    }
     try {
       const result = await requireRemote().callTool({
         name,
@@ -771,6 +874,10 @@ local.setRequestHandler(ListResourcesRequestSchema, async (request) => {
 });
 
 local.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  await sessionReady;
+  if (!remote) {
+    throw new Error(missingSlackSessionDetail("read_resource"));
+  }
   return await requireRemote().readResource(request.params);
 });
 
@@ -783,12 +890,17 @@ local.setRequestHandler(ListPromptsRequestSchema, async (request) => {
 });
 
 local.setRequestHandler(GetPromptRequestSchema, async (request) => {
+  await sessionReady;
+  if (!remote) {
+    throw new Error(missingSlackSessionDetail("get_prompt"));
+  }
   return await requireRemote().getPrompt(request.params);
 });
 
+sessionReady = tryAttachExistingSession();
 const stdio = new StdioServerTransport();
 await local.connect(stdio);
-console.error("[slack-stdio] stdio ready (tools = mcp.slack.com + local overlay)");
+console.error("[slack-stdio] stdio ready (Slack session attaches in the background)");
 
 const shutdown = async () => {
   try {

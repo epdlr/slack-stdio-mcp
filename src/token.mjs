@@ -29,7 +29,7 @@ import {
  * @property {string} [refresh_token]
  * @property {string} [token_type]
  * @property {string} [scope]
- * @property {string} [expires_at]  ISO-8601; absent = no known expiry
+ * @property {string | number} [expires_at]  ISO-8601 or unix time; absent = no known expiry
  * @property {object} [raw]
  * @property {string} [obtained_at]
  */
@@ -221,16 +221,47 @@ export function loadCredentials(clientId) {
 }
 
 /**
- * Resolve ISO `expires_at`: top-level field or derived from raw.expires_in + obtained_at.
+ * Parse an expiry into epoch milliseconds.
+ * ISO-8601, or unix time (seconds when the magnitude is below 1e12, otherwise ms).
+ * Numeric strings are accepted because older credential files stored unix seconds.
+ *
+ * @param {unknown} value
+ * @returns {number | null}
+ */
+export function parseExpiryMs(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value < 1e12 ? Math.round(value * 1000) : Math.round(value);
+  }
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (/^\d+(\.\d+)?$/.test(trimmed)) {
+    const asNumber = Number(trimmed);
+    if (!Number.isFinite(asNumber)) {
+      return null;
+    }
+    return asNumber < 1e12 ? Math.round(asNumber * 1000) : Math.round(asNumber);
+  }
+  const parsed = Date.parse(trimmed);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+/**
+ * Resolve `expires_at`: top-level field or derived from raw.expires_in + obtained_at.
+ * The top-level field may be an ISO string or a legacy unix timestamp.
  *
  * @param {SlackMcpCredentials | null | undefined} data
- * @returns {string | null}
+ * @returns {string | number | null}
  */
 export function resolveExpiresAt(data) {
   if (!data) {
     return null;
   }
-  if (data.expires_at) {
+  if (data.expires_at != null && data.expires_at !== "") {
     return data.expires_at;
   }
   const raw = data.raw && typeof data.raw === "object" ? data.raw : null;
@@ -261,13 +292,15 @@ export function isAccessTokenValid(data, opts = {}) {
   if (!token) {
     return false;
   }
+  const explicitExpiry = data?.expires_at != null && data.expires_at !== "";
   const expiresAt = resolveExpiresAt(data);
-  if (!expiresAt) {
+  if (!explicitExpiry && (expiresAt == null || expiresAt === "")) {
     return true;
   }
-  const expMs = Date.parse(expiresAt);
-  if (Number.isNaN(expMs)) {
-    return true;
+  const expMs = parseExpiryMs(expiresAt);
+  // A present but unreadable expiry must not be treated as "never expires".
+  if (expMs == null) {
+    return false;
   }
   const now = opts.now ?? Date.now();
   const skew = opts.skewMs ?? EXPIRY_SKEW_MS;
